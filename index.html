@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Таксометр</title>
+<meta name="theme-color" content="#111318">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Таксометр</h1>
+  <button id="btn-history" class="icon-btn" title="История смен">История</button>
+</header>
+
+<main id="view-root"></main>
+
+<!-- Экран: нет активной смены -->
+<template id="tpl-start">
+  <section class="screen">
+    <h2>Начать смену</h2>
+    <label class="field-label">Режим работы</label>
+    <div class="mode-switch">
+      <button class="mode-btn active" data-mode="flexible">Гибкий</button>
+      <button class="mode-btn" data-mode="efficient">Эффективный</button>
+    </div>
+    <button id="btn-start-shift" class="btn btn-primary btn-lg">Начать смену</button>
+  </section>
+</template>
+
+<!-- Экран: активная смена -->
+<template id="tpl-shift">
+  <section class="screen">
+    <div class="status-badge" id="status-badge">На линии</div>
+
+    <div class="timer-block">
+      <div class="timer-label">Время смены</div>
+      <div class="timer" id="timer-shift">00:00:00</div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-value" id="stat-orders-time">00:00:00</div>
+        <div class="stat-label">В заказах</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-idle-time">00:00:00</div>
+        <div class="stat-label">Простой</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-break-time">00:00:00</div>
+        <div class="stat-label">Обед</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-distance">0.0 км</div>
+        <div class="stat-label">Пробег</div>
+      </div>
+    </div>
+
+    <div class="order-panel" id="order-panel">
+      <!-- заполняется в JS в зависимости от состояния -->
+    </div>
+
+    <div class="action-row">
+      <button id="btn-toggle-break" class="btn btn-secondary">Обед</button>
+      <button id="btn-end-shift" class="btn btn-danger">Завершить смену</button>
+    </div>
+
+    <h3 class="orders-heading">Заказы за смену (<span id="orders-count">0</span>)</h3>
+    <ul class="orders-list" id="orders-list"></ul>
+  </section>
+</template>
+
+<!-- Экран: итог смены -->
+<template id="tpl-summary">
+  <section class="screen">
+    <h2>Итоги смены</h2>
+    <div class="summary-grid" id="summary-grid"></div>
+    <h3 class="orders-heading">Заказы (<span id="summary-orders-count">0</span>)</h3>
+    <ul class="orders-list" id="summary-orders-list"></ul>
+    <button id="btn-close-summary" class="btn btn-primary btn-lg">Готово</button>
+  </section>
+</template>
+
+<!-- Экран: история смен -->
+<template id="tpl-history">
+  <section class="screen">
+    <h2>История смен</h2>
+    <ul class="shift-history-list" id="shift-history-list"></ul>
+    <p class="empty-hint" id="history-empty-hint" hidden>Пока нет завершённых смен</p>
+  </section>
+</template>
+
+<!-- Модалка: оплата заказа -->
+<div class="modal-overlay" id="modal-payment" hidden>
+  <div class="modal">
+    <h3>Оплата заказа</h3>
+    <p class="modal-sub">Время: <span id="modal-order-time"></span> · Пробег: <span id="modal-order-distance"></span></p>
+    <label class="field-label" for="input-payment">Сумма от агрегатора, ₽</label>
+    <input type="number" id="input-payment" inputmode="decimal" min="0" step="1" placeholder="0" autofocus>
+    <div class="modal-actions">
+      <button id="btn-cancel-payment" class="btn btn-secondary">Отмена</button>
+      <button id="btn-confirm-payment" class="btn btn-primary">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<script src="storage.js"></script>
+<script src="geo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

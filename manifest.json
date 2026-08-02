@@ -1,0 +1,12 @@
+{
+  "name": "Таксометр — учёт эффективности водителя",
+  "short_name": "Таксометр",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#111318",
+  "theme_color": "#111318",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
