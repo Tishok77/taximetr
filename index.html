@@ -37,6 +37,11 @@
   <section class="screen">
     <div class="status-badge" id="status-badge">На линии</div>
 
+    <div class="mode-switch mode-switch-compact" id="shift-mode-switch">
+      <button class="mode-btn" data-mode="flexible">Гибкий</button>
+      <button class="mode-btn" data-mode="efficient">Эффективный</button>
+    </div>
+
     <div class="timer-block">
       <div class="timer-label">Время смены</div>
       <div class="timer" id="timer-shift">00:00:00</div>
@@ -80,6 +85,8 @@
   <section class="screen">
     <h2>Итоги смены</h2>
     <div class="summary-grid" id="summary-grid"></div>
+    <h3 class="orders-heading">По режимам работы</h3>
+    <div class="summary-grid" id="mode-breakdown-grid"></div>
     <h3 class="orders-heading">Заказы (<span id="summary-orders-count">0</span>)</h3>
     <ul class="orders-list" id="summary-orders-list"></ul>
     <button id="btn-close-summary" class="btn btn-primary btn-lg">Готово</button>

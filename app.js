@@ -6,6 +6,11 @@
   const inputPayment = document.getElementById('input-payment');
 
   let shift = AppStorage.getCurrentShift(); // текущая активная смена или null
+  if (shift && !shift.modeStats) {
+    // миграция старого формата смены (без разбивки простоя по режимам)
+    shift.modeStats = { flexible: { idleSeconds: shift.idleSeconds || 0 }, efficient: { idleSeconds: 0 } };
+    delete shift.idleSeconds;
+  }
   let tickInterval = null;
   let pendingOrderEnd = null; // { durationSec, distanceKm } на время открытой модалки оплаты
 
@@ -50,10 +55,22 @@
     return Math.max(0, (now - ts) / 1000);
   }
 
+  const MODES = ['flexible', 'efficient'];
+
+  function modeLabel(mode) {
+    return mode === 'efficient' ? 'Эффективный' : 'Гибкий';
+  }
+
+  function idleSecondsForMode(s, mode, now) {
+    const accumulated = (s.modeStats[mode] && s.modeStats[mode].idleSeconds) || 0;
+    const live = s.state === 'idle' && s.mode === mode ? elapsedSince(s.segmentStartedAt, now) : 0;
+    return accumulated + live;
+  }
+
   function computeLiveStats(s, now) {
     const ordersDoneSec = s.orders.reduce((sum, o) => sum + o.durationSec, 0);
     const currentOrderSec = s.state === 'order' ? elapsedSince(s.currentOrder.startedAt, now) : 0;
-    const idleSec = s.idleSeconds + (s.state === 'idle' ? elapsedSince(s.segmentStartedAt, now) : 0);
+    const idleSec = MODES.reduce((sum, mode) => sum + idleSecondsForMode(s, mode, now), 0);
     const breakSec = s.breakSeconds + (s.state === 'break' ? elapsedSince(s.segmentStartedAt, now) : 0);
     const shiftSec = elapsedSince(s.startedAt, now);
     return {
@@ -63,6 +80,27 @@
       shiftSec,
       distanceKm: s.distanceKm,
     };
+  }
+
+  // Разбивка времени/дохода по режиму работы (для переключения режима без завершения смены)
+  function computeModeBreakdown(s, now) {
+    return MODES.map((mode) => {
+      const modeOrders = s.orders.filter((o) => (o.mode || s.mode) === mode);
+      const ordersSec = modeOrders.reduce((sum, o) => sum + o.durationSec, 0) +
+        (s.state === 'order' && s.currentOrder.mode === mode ? elapsedSince(s.currentOrder.startedAt, now) : 0);
+      const idleSec = idleSecondsForMode(s, mode, now);
+      return {
+        mode,
+        lineSec: ordersSec + idleSec,
+        ordersCount: modeOrders.length,
+        earnings: modeOrders.reduce((sum, o) => sum + o.payment, 0),
+      };
+    });
+  }
+
+  // Закрывает текущий отрезок простоя, накопив его время в статистику активного режима
+  function closeIdleSegment(now) {
+    shift.modeStats[shift.mode].idleSeconds += elapsedSince(shift.segmentStartedAt, now);
   }
 
   // ---------- Персистентность ----------
@@ -128,7 +166,7 @@
         endedAt: null,
         state: 'idle',
         segmentStartedAt: now,
-        idleSeconds: 0,
+        modeStats: { flexible: { idleSeconds: 0 }, efficient: { idleSeconds: 0 } },
         breakSeconds: 0,
         distanceKm: 0,
         orders: [],
@@ -151,6 +189,7 @@
     const orderPanel = document.getElementById('order-panel');
     const btnBreak = document.getElementById('btn-toggle-break');
     const btnEnd = document.getElementById('btn-end-shift');
+    const modeButtons = viewRoot.querySelectorAll('#shift-mode-switch .mode-btn');
 
     function renderOrderPanel(now) {
       orderPanel.innerHTML = '';
@@ -202,15 +241,20 @@
       btnBreak.textContent = shift.state === 'break' ? 'Закончить обед' : 'Обед';
       btnBreak.disabled = shift.state === 'order';
       btnEnd.disabled = shift.state === 'order';
+
+      modeButtons.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.mode === shift.mode);
+        btn.disabled = shift.state === 'order';
+      });
     }
 
     function onStartOrderClick() {
       if (shift.state !== 'idle') return;
       const now = Date.now();
-      shift.idleSeconds += elapsedSince(shift.segmentStartedAt, now);
+      closeIdleSegment(now);
       shift.state = 'order';
       shift.segmentStartedAt = now;
-      shift.currentOrder = { startedAt: now, distanceAtStart: shift.distanceKm };
+      shift.currentOrder = { startedAt: now, distanceAtStart: shift.distanceKm, mode: shift.mode };
       persist();
       tick();
     }
@@ -231,7 +275,7 @@
     btnBreak.addEventListener('click', () => {
       const now = Date.now();
       if (shift.state === 'idle') {
-        shift.idleSeconds += elapsedSince(shift.segmentStartedAt, now);
+        closeIdleSegment(now);
         shift.state = 'break';
         shift.segmentStartedAt = now;
       } else if (shift.state === 'break') {
@@ -243,10 +287,25 @@
       tick();
     });
 
+    modeButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const newMode = btn.dataset.mode;
+        if (newMode === shift.mode || shift.state === 'order') return;
+        const now = Date.now();
+        if (shift.state === 'idle') {
+          closeIdleSegment(now);
+          shift.segmentStartedAt = now;
+        }
+        shift.mode = newMode;
+        persist();
+        tick();
+      });
+    });
+
     btnEnd.addEventListener('click', () => {
       if (shift.state === 'order') return;
       const now = Date.now();
-      if (shift.state === 'idle') shift.idleSeconds += elapsedSince(shift.segmentStartedAt, now);
+      if (shift.state === 'idle') closeIdleSegment(now);
       if (shift.state === 'break') shift.breakSeconds += elapsedSince(shift.segmentStartedAt, now);
       shift.endedAt = now;
       stopGps();
@@ -276,6 +335,7 @@
         endedAt: Date.now(),
         durationSec: pendingOrderEnd.durationSec,
         distanceKm: pendingOrderEnd.distanceKm,
+        mode: shift.currentOrder.mode,
         payment,
       };
       shift.orders.push(order);
@@ -317,10 +377,9 @@
     const efficiencyPct = lineSec > 0 ? (stats.ordersSec / lineSec) * 100 : 0;
     const perHour = lineSec > 0 ? totalEarnings / (lineSec / 3600) : 0;
     const perKm = stats.distanceKm > 0 ? totalEarnings / stats.distanceKm : 0;
-    const modeLabel = finishedShift.mode === 'efficient' ? 'Эффективный' : 'Гибкий';
 
     const cards = [
-      { label: 'Режим работы', value: modeLabel },
+      { label: 'Режим работы (на конец смены)', value: modeLabel(finishedShift.mode) },
       { label: 'Смена', value: `${formatDateTime(finishedShift.startedAt)} – ${formatDateTime(finishedShift.endedAt)}` , wide: true },
       { label: 'Общее время смены', value: formatHMS(stats.shiftSec) },
       { label: 'Время на линии', value: formatHMS(lineSec) },
@@ -338,6 +397,14 @@
       <div class="summary-card ${c.wide ? 'wide' : ''} ${c.highlight ? 'highlight' : ''}">
         <div class="sc-value">${c.value}</div>
         <div class="sc-label">${c.label}</div>
+      </div>
+    `).join('');
+
+    const breakdown = computeModeBreakdown(finishedShift, now);
+    document.getElementById('mode-breakdown-grid').innerHTML = breakdown.map((b) => `
+      <div class="summary-card wide">
+        <div class="sc-value">${formatHMS(b.lineSec)} на линии</div>
+        <div class="sc-label">${modeLabel(b.mode)} · ${b.ordersCount} заказ(ов) · ${formatMoney(b.earnings)}</div>
       </div>
     `).join('');
 
@@ -371,12 +438,11 @@
 
     list.innerHTML = history.map((s, i) => {
       const earnings = s.orders.reduce((sum, o) => sum + o.payment, 0);
-      const modeLabel = s.mode === 'efficient' ? 'Эффективный' : 'Гибкий';
       return `
         <li class="shift-item" data-index="${i}">
           <div class="si-left">
             <span class="oi-num">${formatDateTime(s.startedAt)}</span>
-            <span class="si-meta">${modeLabel} · ${s.orders.length} заказ(ов) · ${formatKm(s.distanceKm)}</span>
+            <span class="si-meta">${modeLabel(s.mode)} · ${s.orders.length} заказ(ов) · ${formatKm(s.distanceKm)}</span>
           </div>
           <div class="oi-payment">${formatMoney(earnings)}</div>
         </li>
