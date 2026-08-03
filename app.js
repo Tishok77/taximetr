@@ -632,9 +632,9 @@
 
     const commissions = AppStorage.getCommissionSettings();
     document.getElementById('comm-flexible-service').value = commissions.flexible.service;
+    document.getElementById('comm-flexible-mode').value = commissions.flexible.mode;
     document.getElementById('comm-flexible-park').value = commissions.flexible.park;
     document.getElementById('comm-efficient-service').value = commissions.efficient.service;
-    document.getElementById('comm-efficient-mode').value = commissions.efficient.mode;
     document.getElementById('comm-efficient-park').value = commissions.efficient.park;
 
     const status = document.getElementById('commission-save-status');
@@ -643,11 +643,11 @@
       const newCommissions = {
         flexible: {
           service: parseFloat(document.getElementById('comm-flexible-service').value) || 0,
+          mode: parseFloat(document.getElementById('comm-flexible-mode').value) || 0,
           park: parseFloat(document.getElementById('comm-flexible-park').value) || 0,
         },
         efficient: {
           service: parseFloat(document.getElementById('comm-efficient-service').value) || 0,
-          mode: parseFloat(document.getElementById('comm-efficient-mode').value) || 0,
           park: parseFloat(document.getElementById('comm-efficient-park').value) || 0,
         },
       };

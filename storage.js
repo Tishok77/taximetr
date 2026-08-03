@@ -14,8 +14,8 @@ const AppStorage = (() => {
   // Проценты по умолчанию (Яндекс.Такси): вычитаются из суммы,
   // которую водитель вводит после заказа (цена поездки до комиссии).
   const DEFAULT_COMMISSIONS = {
-    flexible: { service: 19.83, park: 4.3 },
-    efficient: { service: 19.83, mode: 3.97, park: 4.3 },
+    flexible: { service: 19.83, mode: 3.97, park: 4.3 },
+    efficient: { service: 19.83, park: 4.3 },
   };
 
   function getCurrentShift() {
