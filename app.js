@@ -455,6 +455,11 @@
         renderSummary(s, { backTo: 'history' });
       });
     });
+
+    document.getElementById('btn-history-back').addEventListener('click', () => {
+      if (shift) renderShift();
+      else renderStart();
+    });
   }
 
   document.getElementById('btn-history').addEventListener('click', () => renderHistory());
