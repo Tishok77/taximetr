@@ -63,15 +63,15 @@
 
   function idleSecondsForMode(s, mode, now) {
     const accumulated = (s.modeStats[mode] && s.modeStats[mode].idleSeconds) || 0;
-    const live = s.state === 'idle' && s.mode === mode ? elapsedSince(s.segmentStartedAt, now) : 0;
+    const live = !s.endedAt && s.state === 'idle' && s.mode === mode ? elapsedSince(s.segmentStartedAt, now) : 0;
     return accumulated + live;
   }
 
   function computeLiveStats(s, now) {
     const ordersDoneSec = s.orders.reduce((sum, o) => sum + o.durationSec, 0);
-    const currentOrderSec = s.state === 'order' ? elapsedSince(s.currentOrder.startedAt, now) : 0;
+    const currentOrderSec = !s.endedAt && s.state === 'order' ? elapsedSince(s.currentOrder.startedAt, now) : 0;
     const idleSec = MODES.reduce((sum, mode) => sum + idleSecondsForMode(s, mode, now), 0);
-    const breakSec = s.breakSeconds + (s.state === 'break' ? elapsedSince(s.segmentStartedAt, now) : 0);
+    const breakSec = s.breakSeconds + (!s.endedAt && s.state === 'break' ? elapsedSince(s.segmentStartedAt, now) : 0);
     const shiftSec = elapsedSince(s.startedAt, now);
     return {
       ordersSec: ordersDoneSec + currentOrderSec,
@@ -87,7 +87,7 @@
     return MODES.map((mode) => {
       const modeOrders = s.orders.filter((o) => (o.mode || s.mode) === mode);
       const ordersSec = modeOrders.reduce((sum, o) => sum + o.durationSec, 0) +
-        (s.state === 'order' && s.currentOrder.mode === mode ? elapsedSince(s.currentOrder.startedAt, now) : 0);
+        (!s.endedAt && s.state === 'order' && s.currentOrder.mode === mode ? elapsedSince(s.currentOrder.startedAt, now) : 0);
       const idleSec = idleSecondsForMode(s, mode, now);
       return {
         mode,
@@ -307,6 +307,7 @@
       const now = Date.now();
       if (shift.state === 'idle') closeIdleSegment(now);
       if (shift.state === 'break') shift.breakSeconds += elapsedSince(shift.segmentStartedAt, now);
+      shift.segmentStartedAt = now; // отрезок закрыт, чтобы итоги не досчитали его повторно
       shift.endedAt = now;
       stopGps();
       stopTicker();
