@@ -45,6 +45,13 @@
     return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   }
 
+  function formatSheetDateTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
   function makeId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -101,6 +108,92 @@
   // Закрывает текущий отрезок простоя, накопив его время в статистику активного режима
   function closeIdleSegment(now) {
     shift.modeStats[shift.mode].idleSeconds += elapsedSince(shift.segmentStartedAt, now);
+  }
+
+  // ---------- Выгрузка в Google Таблицы ----------
+
+  function buildExportPayload() {
+    const history = AppStorage.getHistory();
+    const shiftsHeader = [
+      'Дата начала', 'Дата окончания', 'Режим (на конец)', 'Общее время смены',
+      'Время на линии', 'В заказах', 'Простой', 'Обед', 'Пробег, км',
+      'Заказов', 'Доход, ₽', 'Эффективность, %', 'Доход/час, ₽', 'Доход/км, ₽',
+    ];
+    const ordersHeader = ['Смена (дата начала)', '№ заказа', 'Режим', 'Начало', 'Конец', 'Длительность', 'Пробег, км', 'Оплата, ₽'];
+
+    const shiftRows = [];
+    const orderRows = [];
+
+    history.slice().reverse().forEach((s) => {
+      const now = s.endedAt;
+      const stats = computeLiveStats(s, now);
+      const lineSec = Math.max(0, stats.shiftSec - stats.breakSec);
+      const earnings = s.orders.reduce((sum, o) => sum + o.payment, 0);
+      const efficiencyPct = lineSec > 0 ? (stats.ordersSec / lineSec) * 100 : 0;
+      const perHour = lineSec > 0 ? earnings / (lineSec / 3600) : 0;
+      const perKm = stats.distanceKm > 0 ? earnings / stats.distanceKm : 0;
+
+      shiftRows.push([
+        formatSheetDateTime(s.startedAt),
+        formatSheetDateTime(s.endedAt),
+        modeLabel(s.mode),
+        formatHMS(stats.shiftSec),
+        formatHMS(lineSec),
+        formatHMS(stats.ordersSec),
+        formatHMS(stats.idleSec),
+        formatHMS(stats.breakSec),
+        Number(stats.distanceKm.toFixed(2)),
+        s.orders.length,
+        Math.round(earnings),
+        Number(efficiencyPct.toFixed(1)),
+        Math.round(perHour),
+        Math.round(perKm),
+      ]);
+
+      s.orders.forEach((o, i) => {
+        orderRows.push([
+          formatSheetDateTime(s.startedAt),
+          i + 1,
+          modeLabel(o.mode || s.mode),
+          formatSheetDateTime(o.startedAt),
+          formatSheetDateTime(o.endedAt),
+          formatHMS(o.durationSec),
+          Number(o.distanceKm.toFixed(2)),
+          Math.round(o.payment),
+        ]);
+      });
+    });
+
+    return {
+      sheets: {
+        'Смены': [shiftsHeader, ...shiftRows],
+        'Заказы': [ordersHeader, ...orderRows],
+      },
+    };
+  }
+
+  async function exportToSheets(onStatus) {
+    const url = AppStorage.getSheetsUrl().trim();
+    if (!url) { onStatus('Сначала укажите и сохраните ссылку', 'error'); return; }
+
+    onStatus('Отправка...', '');
+    const payload = buildExportPayload();
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let ok = res.ok;
+      try {
+        const json = JSON.parse(text);
+        ok = ok && json.ok !== false;
+      } catch (e) { /* ответ не JSON — доверяем res.ok */ }
+      onStatus(ok ? 'Готово! Данные выгружены в таблицу.' : 'Что-то пошло не так. Проверьте ссылку и доступ к скрипту.', ok ? 'ok' : 'error');
+    } catch (err) {
+      onStatus('Не удалось отправить данные. Проверьте интернет и ссылку.', 'error');
+    }
   }
 
   // ---------- Персистентность ----------
@@ -432,29 +525,67 @@
     const list = document.getElementById('shift-history-list');
     const emptyHint = document.getElementById('history-empty-hint');
 
-    if (history.length === 0) {
-      emptyHint.hidden = false;
-      return;
+    function renderList() {
+      const currentHistory = AppStorage.getHistory();
+      if (currentHistory.length === 0) {
+        emptyHint.hidden = false;
+        list.innerHTML = '';
+        return;
+      }
+      emptyHint.hidden = true;
+      list.innerHTML = currentHistory.map((s) => {
+        const earnings = s.orders.reduce((sum, o) => sum + o.payment, 0);
+        return `
+          <li class="shift-item" data-id="${s.id}">
+            <div class="si-left">
+              <span class="oi-num">${formatDateTime(s.startedAt)}</span>
+              <span class="si-meta">${modeLabel(s.mode)} · ${s.orders.length} заказ(ов) · ${formatKm(s.distanceKm)}</span>
+            </div>
+            <div class="si-right">
+              <div class="oi-payment">${formatMoney(earnings)}</div>
+              <button class="delete-shift-btn" data-id="${s.id}">Удалить</button>
+            </div>
+          </li>
+        `;
+      }).join('');
+
+      list.querySelectorAll('.shift-item').forEach((el) => {
+        el.addEventListener('click', () => {
+          const s = AppStorage.getHistory().find((h) => h.id === el.dataset.id);
+          if (s) renderSummary(s, { backTo: 'history' });
+        });
+      });
+
+      list.querySelectorAll('.delete-shift-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const s = AppStorage.getHistory().find((h) => h.id === btn.dataset.id);
+          const label = s ? formatDateTime(s.startedAt) : '';
+          if (!confirm(`Удалить смену от ${label}? Это действие нельзя отменить.`)) return;
+          AppStorage.saveHistory(AppStorage.getHistory().filter((h) => h.id !== btn.dataset.id));
+          renderList();
+        });
+      });
     }
 
-    list.innerHTML = history.map((s, i) => {
-      const earnings = s.orders.reduce((sum, o) => sum + o.payment, 0);
-      return `
-        <li class="shift-item" data-index="${i}">
-          <div class="si-left">
-            <span class="oi-num">${formatDateTime(s.startedAt)}</span>
-            <span class="si-meta">${modeLabel(s.mode)} · ${s.orders.length} заказ(ов) · ${formatKm(s.distanceKm)}</span>
-          </div>
-          <div class="oi-payment">${formatMoney(earnings)}</div>
-        </li>
-      `;
-    }).join('');
+    renderList();
 
-    list.querySelectorAll('.shift-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        const s = history[Number(el.dataset.index)];
-        renderSummary(s, { backTo: 'history' });
-      });
+    const sheetsUrlInput = document.getElementById('input-sheets-url');
+    const exportStatus = document.getElementById('export-status');
+    sheetsUrlInput.value = AppStorage.getSheetsUrl();
+
+    function setExportStatus(text, kind) {
+      exportStatus.textContent = text;
+      exportStatus.className = 'export-status ' + (kind || '');
+    }
+
+    document.getElementById('btn-save-sheets-url').addEventListener('click', () => {
+      AppStorage.saveSheetsUrl(sheetsUrlInput.value.trim());
+      setExportStatus('Ссылка сохранена', 'ok');
+    });
+
+    document.getElementById('btn-export-sheets').addEventListener('click', () => {
+      exportToSheets(setExportStatus);
     });
 
     document.getElementById('btn-history-back').addEventListener('click', () => {

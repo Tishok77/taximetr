@@ -2,10 +2,12 @@
 // Ключи:
 //  - taximetr_current_shift : активная (незавершённая) смена или отсутствует
 //  - taximetr_history       : массив завершённых смен
+//  - taximetr_sheets_url    : ссылка на Google Apps Script Web App для выгрузки
 
 const AppStorage = (() => {
   const KEY_CURRENT = 'taximetr_current_shift';
   const KEY_HISTORY = 'taximetr_history';
+  const KEY_SHEETS_URL = 'taximetr_sheets_url';
 
   function getCurrentShift() {
     const raw = localStorage.getItem(KEY_CURRENT);
@@ -31,5 +33,21 @@ const AppStorage = (() => {
     localStorage.setItem(KEY_HISTORY, JSON.stringify(history));
   }
 
-  return { getCurrentShift, saveCurrentShift, clearCurrentShift, getHistory, addToHistory };
+  function saveHistory(history) {
+    localStorage.setItem(KEY_HISTORY, JSON.stringify(history));
+  }
+
+  function getSheetsUrl() {
+    return localStorage.getItem(KEY_SHEETS_URL) || '';
+  }
+
+  function saveSheetsUrl(url) {
+    localStorage.setItem(KEY_SHEETS_URL, url);
+  }
+
+  return {
+    getCurrentShift, saveCurrentShift, clearCurrentShift,
+    getHistory, addToHistory, saveHistory,
+    getSheetsUrl, saveSheetsUrl,
+  };
 })();

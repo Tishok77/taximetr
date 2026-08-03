@@ -97,6 +97,17 @@
 <template id="tpl-history">
   <section class="screen">
     <h2>История смен</h2>
+
+    <div class="export-box">
+      <label class="field-label" for="input-sheets-url">Ссылка на Google Apps Script (для выгрузки в Google Таблицы)</label>
+      <input type="url" id="input-sheets-url" placeholder="https://script.google.com/macros/s/.../exec">
+      <div class="export-actions">
+        <button id="btn-save-sheets-url" class="btn btn-secondary">Сохранить ссылку</button>
+        <button id="btn-export-sheets" class="btn btn-primary">Выгрузить в Google Таблицы</button>
+      </div>
+      <p class="export-status" id="export-status"></p>
+    </div>
+
     <ul class="shift-history-list" id="shift-history-list"></ul>
     <p class="empty-hint" id="history-empty-hint" hidden>Пока нет завершённых смен</p>
     <button id="btn-history-back" class="btn btn-secondary btn-lg">На главный экран</button>
