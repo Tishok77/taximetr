@@ -68,6 +68,16 @@
     return mode === 'efficient' ? 'Эффективный' : 'Гибкий';
   }
 
+  // Комиссии агрегатора/парка вычитаются из суммы, введённой водителем (цена до комиссии)
+  function commissionPct(commissions, mode) {
+    const m = commissions[mode] || {};
+    return Object.values(m).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  }
+
+  function netAmount(gross, commissions, mode) {
+    return gross * (1 - commissionPct(commissions, mode) / 100);
+  }
+
   function idleSecondsForMode(s, mode, now) {
     const accumulated = (s.modeStats[mode] && s.modeStats[mode].idleSeconds) || 0;
     const live = !s.endedAt && s.state === 'idle' && s.mode === mode ? elapsedSince(s.segmentStartedAt, now) : 0;
@@ -91,6 +101,7 @@
 
   // Разбивка времени/дохода по режиму работы (для переключения режима без завершения смены)
   function computeModeBreakdown(s, now) {
+    const commissions = AppStorage.getCommissionSettings();
     return MODES.map((mode) => {
       const modeOrders = s.orders.filter((o) => (o.mode || s.mode) === mode);
       const ordersSec = modeOrders.reduce((sum, o) => sum + o.durationSec, 0) +
@@ -100,7 +111,8 @@
         mode,
         lineSec: ordersSec + idleSec,
         ordersCount: modeOrders.length,
-        earnings: modeOrders.reduce((sum, o) => sum + o.payment, 0),
+        grossEarnings: modeOrders.reduce((sum, o) => sum + o.payment, 0),
+        netEarnings: modeOrders.reduce((sum, o) => sum + netAmount(o.payment, commissions, mode), 0),
       };
     });
   }
@@ -114,12 +126,17 @@
 
   function buildExportPayload() {
     const history = AppStorage.getHistory();
+    const commissions = AppStorage.getCommissionSettings();
     const shiftsHeader = [
       'Дата начала', 'Дата окончания', 'Режим (на конец)', 'Общее время смены',
       'Время на линии', 'В заказах', 'Простой', 'Обед', 'Пробег, км',
-      'Заказов', 'Доход, ₽', 'Эффективность, %', 'Доход/час, ₽', 'Доход/км, ₽',
+      'Заказов', 'Доход до комиссии, ₽', 'Доход чистыми, ₽', 'Эффективность, %',
+      'Доход/час чистыми, ₽', 'Доход/км чистыми, ₽',
     ];
-    const ordersHeader = ['Смена (дата начала)', '№ заказа', 'Режим', 'Начало', 'Конец', 'Длительность', 'Пробег, км', 'Оплата, ₽'];
+    const ordersHeader = [
+      'Смена (дата начала)', '№ заказа', 'Режим', 'Начало', 'Конец', 'Длительность',
+      'Пробег, км', 'Оплата до комиссии, ₽', 'Оплата чистыми, ₽',
+    ];
 
     const shiftRows = [];
     const orderRows = [];
@@ -128,10 +145,11 @@
       const now = s.endedAt;
       const stats = computeLiveStats(s, now);
       const lineSec = Math.max(0, stats.shiftSec - stats.breakSec);
-      const earnings = s.orders.reduce((sum, o) => sum + o.payment, 0);
+      const grossEarnings = s.orders.reduce((sum, o) => sum + o.payment, 0);
+      const netEarnings = s.orders.reduce((sum, o) => sum + netAmount(o.payment, commissions, o.mode || s.mode), 0);
       const efficiencyPct = lineSec > 0 ? (stats.ordersSec / lineSec) * 100 : 0;
-      const perHour = lineSec > 0 ? earnings / (lineSec / 3600) : 0;
-      const perKm = stats.distanceKm > 0 ? earnings / stats.distanceKm : 0;
+      const perHour = lineSec > 0 ? netEarnings / (lineSec / 3600) : 0;
+      const perKm = stats.distanceKm > 0 ? netEarnings / stats.distanceKm : 0;
 
       shiftRows.push([
         formatSheetDateTime(s.startedAt),
@@ -144,7 +162,8 @@
         formatHMS(stats.breakSec),
         Number(stats.distanceKm.toFixed(2)),
         s.orders.length,
-        Math.round(earnings),
+        Math.round(grossEarnings),
+        Math.round(netEarnings),
         Number(efficiencyPct.toFixed(1)),
         Math.round(perHour),
         Math.round(perKm),
@@ -160,6 +179,7 @@
           formatHMS(o.durationSec),
           Number(o.distanceKm.toFixed(2)),
           Math.round(o.payment),
+          Math.round(netAmount(o.payment, commissions, o.mode || s.mode)),
         ]);
       });
     });
@@ -445,13 +465,15 @@
   }
 
   function orderItemHtml(num, o) {
+    const commissions = AppStorage.getCommissionSettings();
+    const net = netAmount(o.payment, commissions, o.mode || 'flexible');
     return `
       <li class="order-item">
         <div class="oi-left">
           <span class="oi-num">Заказ №${num}</span>
-          <span class="oi-meta">${formatTime(o.startedAt)}–${formatTime(o.endedAt)} · ${formatHMS(o.durationSec)} · ${formatKm(o.distanceKm)}</span>
+          <span class="oi-meta">${formatTime(o.startedAt)}–${formatTime(o.endedAt)} · ${formatHMS(o.durationSec)} · ${formatKm(o.distanceKm)} · до комиссии ${formatMoney(o.payment)}</span>
         </div>
-        <div class="oi-payment">${formatMoney(o.payment)}</div>
+        <div class="oi-payment">${formatMoney(net)}</div>
       </li>
     `;
   }
@@ -467,10 +489,12 @@
     const now = finishedShift.endedAt;
     const stats = computeLiveStats(finishedShift, now);
     const lineSec = Math.max(0, stats.shiftSec - stats.breakSec);
-    const totalEarnings = finishedShift.orders.reduce((sum, o) => sum + o.payment, 0);
+    const commissions = AppStorage.getCommissionSettings();
+    const grossEarnings = finishedShift.orders.reduce((sum, o) => sum + o.payment, 0);
+    const netEarnings = finishedShift.orders.reduce((sum, o) => sum + netAmount(o.payment, commissions, o.mode || finishedShift.mode), 0);
     const efficiencyPct = lineSec > 0 ? (stats.ordersSec / lineSec) * 100 : 0;
-    const perHour = lineSec > 0 ? totalEarnings / (lineSec / 3600) : 0;
-    const perKm = stats.distanceKm > 0 ? totalEarnings / stats.distanceKm : 0;
+    const perHour = lineSec > 0 ? netEarnings / (lineSec / 3600) : 0;
+    const perKm = stats.distanceKm > 0 ? netEarnings / stats.distanceKm : 0;
 
     const cards = [
       { label: 'Режим работы (на конец смены)', value: modeLabel(finishedShift.mode) },
@@ -482,9 +506,10 @@
       { label: 'Обед', value: formatHMS(stats.breakSec) },
       { label: 'Пробег', value: formatKm(stats.distanceKm) },
       { label: 'Эффективность', value: `${efficiencyPct.toFixed(0)}%`, highlight: true },
-      { label: 'Доход итого', value: formatMoney(totalEarnings), highlight: true, wide: true },
-      { label: 'Доход в час (на линии)', value: formatMoney(perHour) },
-      { label: 'Доход за 1 км', value: formatMoney(perKm) },
+      { label: 'Доход чистыми', value: formatMoney(netEarnings), highlight: true, wide: true },
+      { label: 'Доход до комиссии', value: formatMoney(grossEarnings) },
+      { label: 'Доход в час чистыми (на линии)', value: formatMoney(perHour) },
+      { label: 'Доход за 1 км чистыми', value: formatMoney(perKm) },
     ];
 
     document.getElementById('summary-grid').innerHTML = cards.map((c) => `
@@ -497,8 +522,8 @@
     const breakdown = computeModeBreakdown(finishedShift, now);
     document.getElementById('mode-breakdown-grid').innerHTML = breakdown.map((b) => `
       <div class="summary-card wide">
-        <div class="sc-value">${formatHMS(b.lineSec)} на линии</div>
-        <div class="sc-label">${modeLabel(b.mode)} · ${b.ordersCount} заказ(ов) · ${formatMoney(b.earnings)}</div>
+        <div class="sc-value">${formatMoney(b.netEarnings)} чистыми</div>
+        <div class="sc-label">${modeLabel(b.mode)} · ${formatHMS(b.lineSec)} на линии · ${b.ordersCount} заказ(ов) · ${formatMoney(b.grossEarnings)} до комиссии</div>
       </div>
     `).join('');
 
@@ -533,8 +558,9 @@
         return;
       }
       emptyHint.hidden = true;
+      const commissions = AppStorage.getCommissionSettings();
       list.innerHTML = currentHistory.map((s) => {
-        const earnings = s.orders.reduce((sum, o) => sum + o.payment, 0);
+        const earnings = s.orders.reduce((sum, o) => sum + netAmount(o.payment, commissions, o.mode || s.mode), 0);
         return `
           <li class="shift-item" data-id="${s.id}">
             <div class="si-left">
@@ -595,6 +621,48 @@
   }
 
   document.getElementById('btn-history').addEventListener('click', () => renderHistory());
+
+  // ---------- Рендер: настройки комиссий ----------
+
+  function renderSettings() {
+    stopTicker();
+    viewRoot.innerHTML = '';
+    const tpl = document.getElementById('tpl-settings').content.cloneNode(true);
+    viewRoot.appendChild(tpl);
+
+    const commissions = AppStorage.getCommissionSettings();
+    document.getElementById('comm-flexible-service').value = commissions.flexible.service;
+    document.getElementById('comm-flexible-park').value = commissions.flexible.park;
+    document.getElementById('comm-efficient-service').value = commissions.efficient.service;
+    document.getElementById('comm-efficient-mode').value = commissions.efficient.mode;
+    document.getElementById('comm-efficient-park').value = commissions.efficient.park;
+
+    const status = document.getElementById('commission-save-status');
+
+    document.getElementById('btn-save-commissions').addEventListener('click', () => {
+      const newCommissions = {
+        flexible: {
+          service: parseFloat(document.getElementById('comm-flexible-service').value) || 0,
+          park: parseFloat(document.getElementById('comm-flexible-park').value) || 0,
+        },
+        efficient: {
+          service: parseFloat(document.getElementById('comm-efficient-service').value) || 0,
+          mode: parseFloat(document.getElementById('comm-efficient-mode').value) || 0,
+          park: parseFloat(document.getElementById('comm-efficient-park').value) || 0,
+        },
+      };
+      AppStorage.saveCommissionSettings(newCommissions);
+      status.textContent = 'Сохранено';
+      status.className = 'export-status ok';
+    });
+
+    document.getElementById('btn-settings-back').addEventListener('click', () => {
+      if (shift) renderShift();
+      else renderStart();
+    });
+  }
+
+  document.getElementById('btn-settings').addEventListener('click', () => renderSettings());
 
   // ---------- Инициализация ----------
 

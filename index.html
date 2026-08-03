@@ -14,7 +14,10 @@
 
 <header class="topbar">
   <h1>Таксометр</h1>
-  <button id="btn-history" class="icon-btn" title="История смен">История</button>
+  <div class="topbar-actions">
+    <button id="btn-settings" class="icon-btn" title="Настройки комиссий">Комиссии</button>
+    <button id="btn-history" class="icon-btn" title="История смен">История</button>
+  </div>
 </header>
 
 <main id="view-root"></main>
@@ -90,6 +93,36 @@
     <h3 class="orders-heading">Заказы (<span id="summary-orders-count">0</span>)</h3>
     <ul class="orders-list" id="summary-orders-list"></ul>
     <button id="btn-close-summary" class="btn btn-primary btn-lg">Готово</button>
+  </section>
+</template>
+
+<!-- Экран: настройки комиссий -->
+<template id="tpl-settings">
+  <section class="screen">
+    <h2>Настройки комиссий</h2>
+    <p class="settings-hint">Проценты вычитаются из суммы, которую вы вводите после заказа (цена поездки до комиссии) — так приложение считает реальный доход по каждому режиму.</p>
+
+    <div class="export-box">
+      <h3 class="orders-heading" style="margin-top:0">Гибкий режим</h3>
+      <label class="field-label" for="comm-flexible-service">Комиссия сервиса, %</label>
+      <input type="number" id="comm-flexible-service" step="0.01" min="0" max="100">
+      <label class="field-label" for="comm-flexible-park">Комиссия парка, %</label>
+      <input type="number" id="comm-flexible-park" step="0.01" min="0" max="100">
+    </div>
+
+    <div class="export-box">
+      <h3 class="orders-heading" style="margin-top:0">Эффективный режим</h3>
+      <label class="field-label" for="comm-efficient-service">Комиссия сервиса, %</label>
+      <input type="number" id="comm-efficient-service" step="0.01" min="0" max="100">
+      <label class="field-label" for="comm-efficient-mode">Комиссия режима, %</label>
+      <input type="number" id="comm-efficient-mode" step="0.01" min="0" max="100">
+      <label class="field-label" for="comm-efficient-park">Комиссия парка, %</label>
+      <input type="number" id="comm-efficient-park" step="0.01" min="0" max="100">
+    </div>
+
+    <button id="btn-save-commissions" class="btn btn-primary btn-lg">Сохранить</button>
+    <p class="export-status" id="commission-save-status"></p>
+    <button id="btn-settings-back" class="btn btn-secondary btn-lg">На главный экран</button>
   </section>
 </template>
 

@@ -47,6 +47,11 @@ body {
   font-weight: 700;
 }
 
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .icon-btn {
   background: var(--surface-2);
   color: var(--text);
@@ -204,7 +209,8 @@ main {
   margin-bottom: 18px;
 }
 
-.export-box input[type="url"] {
+.export-box input[type="url"],
+.export-box input[type="number"] {
   width: 100%;
   padding: 12px;
   border-radius: 10px;
@@ -212,6 +218,13 @@ main {
   background: var(--surface-2);
   color: var(--text);
   font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.settings-hint {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0 0 16px;
 }
 
 .export-actions {
