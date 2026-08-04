@@ -15,6 +15,8 @@
 <header class="topbar">
   <h1>Таксометр</h1>
   <div class="topbar-actions">
+    <button id="btn-expenses" class="icon-btn" title="Расходы">Расходы</button>
+    <button id="btn-report" class="icon-btn" title="Отчёт по месяцам">Отчёт</button>
     <button id="btn-settings" class="icon-btn" title="Настройки комиссий">Комиссии</button>
     <button id="btn-history" class="icon-btn" title="История смен">История</button>
   </div>
@@ -96,6 +98,37 @@
   </section>
 </template>
 
+<!-- Экран: расходы -->
+<template id="tpl-expenses">
+  <section class="screen">
+    <h2>Расходы</h2>
+
+    <div class="action-row action-row-3">
+      <button class="btn btn-secondary" id="btn-add-fuel">+ Заправка</button>
+      <button class="btn btn-secondary" id="btn-add-electricity">+ Зарядка</button>
+      <button class="btn btn-secondary" id="btn-add-fine">+ Штраф</button>
+    </div>
+
+    <div class="stats-grid" id="expenses-totals"></div>
+
+    <h3 class="orders-heading">Все записи</h3>
+    <ul class="orders-list" id="expenses-list"></ul>
+    <p class="empty-hint" id="expenses-empty-hint" hidden>Пока нет расходов</p>
+
+    <button id="btn-expenses-back" class="btn btn-secondary btn-lg">На главный экран</button>
+  </section>
+</template>
+
+<!-- Экран: отчёт по месяцам -->
+<template id="tpl-report">
+  <section class="screen">
+    <h2>Отчёт по месяцам</h2>
+    <div class="report-months" id="report-months"></div>
+    <p class="empty-hint" id="report-empty-hint" hidden>Пока нет завершённых смен для отчёта</p>
+    <button id="btn-report-back" class="btn btn-secondary btn-lg">На главный экран</button>
+  </section>
+</template>
+
 <!-- Экран: настройки комиссий -->
 <template id="tpl-settings">
   <section class="screen">
@@ -157,6 +190,27 @@
     <div class="modal-actions">
       <button id="btn-cancel-payment" class="btn btn-secondary">Отмена</button>
       <button id="btn-confirm-payment" class="btn btn-primary">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: добавление расхода -->
+<div class="modal-overlay" id="modal-expense" hidden>
+  <div class="modal">
+    <h3 id="expense-modal-title">Добавить расход</h3>
+    <label class="field-label" for="input-expense-date">Дата</label>
+    <input type="date" id="input-expense-date">
+    <div id="expense-quantity-field">
+      <label class="field-label" id="expense-quantity-label" for="input-expense-quantity">Литры</label>
+      <input type="number" id="input-expense-quantity" inputmode="decimal" min="0" step="0.01" placeholder="0">
+    </div>
+    <label class="field-label" for="input-expense-amount">Сумма, ₽</label>
+    <input type="number" id="input-expense-amount" inputmode="decimal" min="0" step="1" placeholder="0">
+    <label class="field-label" for="input-expense-comment">Комментарий (необязательно)</label>
+    <input type="text" id="input-expense-comment" placeholder="Например: превышение скорости">
+    <div class="modal-actions">
+      <button id="btn-cancel-expense" class="btn btn-secondary">Отмена</button>
+      <button id="btn-confirm-expense" class="btn btn-primary">Сохранить</button>
     </div>
   </div>
 </div>

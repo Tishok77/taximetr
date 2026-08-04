@@ -4,12 +4,14 @@
 //  - taximetr_history        : массив завершённых смен
 //  - taximetr_sheets_url     : ссылка на Google Apps Script Web App для выгрузки
 //  - taximetr_commissions    : проценты комиссий агрегатора/парка по режимам
+//  - taximetr_expenses       : расходы (бензин, электричество, штрафы)
 
 const AppStorage = (() => {
   const KEY_CURRENT = 'taximetr_current_shift';
   const KEY_HISTORY = 'taximetr_history';
   const KEY_SHEETS_URL = 'taximetr_sheets_url';
   const KEY_COMMISSIONS = 'taximetr_commissions';
+  const KEY_EXPENSES = 'taximetr_expenses';
 
   // Проценты по умолчанию (Яндекс.Такси): вычитаются из суммы,
   // которую водитель вводит после заказа (цена поездки до комиссии).
@@ -64,10 +66,26 @@ const AppStorage = (() => {
     localStorage.setItem(KEY_COMMISSIONS, JSON.stringify(settings));
   }
 
+  function getExpenses() {
+    const raw = localStorage.getItem(KEY_EXPENSES);
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  function addExpense(expense) {
+    const expenses = getExpenses();
+    expenses.unshift(expense);
+    localStorage.setItem(KEY_EXPENSES, JSON.stringify(expenses));
+  }
+
+  function saveExpenses(expenses) {
+    localStorage.setItem(KEY_EXPENSES, JSON.stringify(expenses));
+  }
+
   return {
     getCurrentShift, saveCurrentShift, clearCurrentShift,
     getHistory, addToHistory, saveHistory,
     getSheetsUrl, saveSheetsUrl,
     getCommissionSettings, saveCommissionSettings,
+    getExpenses, addExpense, saveExpenses,
   };
 })();

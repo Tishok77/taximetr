@@ -32,6 +32,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   padding: 16px 20px calc(env(safe-area-inset-top, 0px) + 0px);
   padding-top: calc(env(safe-area-inset-top, 0px) + 16px);
   border-bottom: 1px solid var(--border);
@@ -49,6 +51,7 @@ body {
 
 .topbar-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -57,8 +60,8 @@ body {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 8px 14px;
-  font-size: 0.9rem;
+  padding: 7px 11px;
+  font-size: 0.82rem;
 }
 
 main {
@@ -249,6 +252,37 @@ main {
 .export-status.ok { color: var(--green); }
 .export-status.error { color: var(--red); }
 
+.expense-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-right: 6px;
+}
+.expense-type-badge.fuel { background: rgba(255,214,10,0.15); color: var(--accent); }
+.expense-type-badge.electricity { background: rgba(91,157,255,0.15); color: var(--blue); }
+.expense-type-badge.fine { background: rgba(255,93,93,0.15); color: var(--red); }
+
+.report-month-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.report-month-card h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.report-month-card .summary-grid {
+  margin: 0;
+}
+
 .si-right {
   display: flex;
   flex-direction: column;
@@ -277,6 +311,16 @@ main {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-top: 14px;
+}
+
+.action-row-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+  margin-top: 0;
+}
+
+.action-row-3 .btn {
+  padding: 12px 6px;
+  font-size: 0.82rem;
 }
 
 .orders-heading {
@@ -372,6 +416,19 @@ main {
   background: var(--surface-2);
   color: var(--text);
   margin-top: 4px;
+}
+
+.modal input[type="date"],
+.modal input[type="text"] {
+  width: 100%;
+  padding: 12px;
+  font-size: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  margin-top: 4px;
+  color-scheme: dark;
 }
 
 .modal-actions {

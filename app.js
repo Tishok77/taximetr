@@ -4,6 +4,7 @@
   const viewRoot = document.getElementById('view-root');
   const modalPayment = document.getElementById('modal-payment');
   const inputPayment = document.getElementById('input-payment');
+  const modalExpense = document.getElementById('modal-expense');
 
   let shift = AppStorage.getCurrentShift(); // текущая активная смена или null
   if (shift && !shift.modeStats) {
@@ -13,6 +14,7 @@
   }
   let tickInterval = null;
   let pendingOrderEnd = null; // { durationSec, distanceKm } на время открытой модалки оплаты
+  let pendingExpenseType = null; // 'fuel' | 'electricity' | 'fine' на время открытой модалки расхода
 
   // ---------- Утилиты форматирования ----------
 
@@ -45,6 +47,33 @@
     return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   }
 
+  function formatDate(ts) {
+    return new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+
+  function dateInputToTs(dateStr) {
+    // считаем полдень локального времени, чтобы избежать смещения дня из-за часового пояса
+    return new Date(`${dateStr}T12:00:00`).getTime();
+  }
+
+  function tsToDateInput(ts) {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function monthKey(ts) {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  function monthLabel(key) {
+    const [year, month] = key.split('-').map(Number);
+    const d = new Date(year, month - 1, 1);
+    const label = d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
   function formatSheetDateTime(ts) {
     if (!ts) return '';
     const d = new Date(ts);
@@ -67,6 +96,12 @@
   function modeLabel(mode) {
     return mode === 'efficient' ? 'Эффективный' : 'Гибкий';
   }
+
+  const EXPENSE_TYPES = {
+    fuel: { label: 'Заправка', quantityLabel: 'Литры', quantityUnit: 'л' },
+    electricity: { label: 'Зарядка', quantityLabel: 'Киловатт-часы', quantityUnit: 'кВт·ч' },
+    fine: { label: 'Штраф', quantityLabel: null, quantityUnit: null },
+  };
 
   // Комиссии агрегатора/парка вычитаются из суммы, введённой водителем (цена до комиссии)
   function commissionPct(commissions, mode) {
@@ -184,10 +219,45 @@
       });
     });
 
+    const expensesHeader = ['Дата', 'Тип', 'Количество', 'Ед. изм.', 'Сумма, ₽', 'Комментарий'];
+    const expenseRows = AppStorage.getExpenses()
+      .slice()
+      .reverse()
+      .map((e) => [
+        formatSheetDateTime(e.date).split(' ')[0],
+        EXPENSE_TYPES[e.type].label,
+        e.quantity == null ? '' : e.quantity,
+        EXPENSE_TYPES[e.type].quantityUnit || '',
+        Math.round(e.amount),
+        e.comment || '',
+      ]);
+
+    const reportHeader = [
+      'Месяц', 'Доход чистыми, ₽', 'Бензин, ₽', 'Электричество, ₽', 'Штрафы, ₽',
+      'Всего расходов, ₽', 'Прибыль, ₽', 'Пробег, км', 'Смен', 'Заказов',
+    ];
+    const reportRows = computeMonthlyReport()
+      .slice()
+      .reverse()
+      .map((m) => [
+        monthLabel(m.key),
+        Math.round(m.netIncome),
+        Math.round(m.fuelAmount),
+        Math.round(m.electricityAmount),
+        Math.round(m.finesAmount),
+        Math.round(m.expensesTotal),
+        Math.round(m.profit),
+        Number(m.distanceKm.toFixed(1)),
+        m.shiftsCount,
+        m.ordersCount,
+      ]);
+
     return {
       sheets: {
         'Смены': [shiftsHeader, ...shiftRows],
         'Заказы': [ordersHeader, ...orderRows],
+        'Расходы': [expensesHeader, ...expenseRows],
+        'Отчёт по месяцам': [reportHeader, ...reportRows],
       },
     };
   }
@@ -663,6 +733,235 @@
   }
 
   document.getElementById('btn-settings').addEventListener('click', () => renderSettings());
+
+  // ---------- Рендер: расходы ----------
+
+  function renderExpenses() {
+    stopTicker();
+    viewRoot.innerHTML = '';
+    const tpl = document.getElementById('tpl-expenses').content.cloneNode(true);
+    viewRoot.appendChild(tpl);
+
+    const list = document.getElementById('expenses-list');
+    const emptyHint = document.getElementById('expenses-empty-hint');
+    const totalsGrid = document.getElementById('expenses-totals');
+
+    function renderList() {
+      const expenses = AppStorage.getExpenses();
+
+      const fuel = expenses.filter((e) => e.type === 'fuel');
+      const electricity = expenses.filter((e) => e.type === 'electricity');
+      const fines = expenses.filter((e) => e.type === 'fine');
+      const fuelTotal = fuel.reduce((sum, e) => sum + e.amount, 0);
+      const fuelLiters = fuel.reduce((sum, e) => sum + (e.quantity || 0), 0);
+      const electricityTotal = electricity.reduce((sum, e) => sum + e.amount, 0);
+      const electricityKwh = electricity.reduce((sum, e) => sum + (e.quantity || 0), 0);
+      const finesTotal = fines.reduce((sum, e) => sum + e.amount, 0);
+
+      totalsGrid.innerHTML = `
+        <div class="stat"><div class="stat-value">${formatMoney(fuelTotal)}</div><div class="stat-label">Бензин (${fuelLiters.toFixed(1)} л)</div></div>
+        <div class="stat"><div class="stat-value">${formatMoney(electricityTotal)}</div><div class="stat-label">Электричество (${electricityKwh.toFixed(1)} кВт·ч)</div></div>
+        <div class="stat"><div class="stat-value">${formatMoney(finesTotal)}</div><div class="stat-label">Штрафы</div></div>
+        <div class="stat"><div class="stat-value">${formatMoney(fuelTotal + electricityTotal + finesTotal)}</div><div class="stat-label">Всего расходов</div></div>
+      `;
+
+      if (expenses.length === 0) {
+        emptyHint.hidden = false;
+        list.innerHTML = '';
+        return;
+      }
+      emptyHint.hidden = true;
+
+      list.innerHTML = expenses.map((e) => {
+        const meta = e.type === 'fine'
+          ? formatDate(e.date) + (e.comment ? ' · ' + e.comment : '')
+          : `${formatDate(e.date)} · ${e.quantity} ${EXPENSE_TYPES[e.type].quantityUnit}${e.comment ? ' · ' + e.comment : ''}`;
+        return `
+          <li class="order-item">
+            <div class="oi-left">
+              <span class="expense-type-badge ${e.type}">${EXPENSE_TYPES[e.type].label}</span>
+              <span class="oi-meta">${meta}</span>
+            </div>
+            <div class="si-right">
+              <div class="oi-payment">${formatMoney(e.amount)}</div>
+              <button class="delete-shift-btn" data-id="${e.id}">Удалить</button>
+            </div>
+          </li>
+        `;
+      }).join('');
+
+      list.querySelectorAll('.delete-shift-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (!confirm('Удалить эту запись о расходе?')) return;
+          AppStorage.saveExpenses(AppStorage.getExpenses().filter((x) => x.id !== btn.dataset.id));
+          renderList();
+        });
+      });
+    }
+
+    renderList();
+
+    function openExpenseModal(type) {
+      pendingExpenseType = type;
+      const meta = EXPENSE_TYPES[type];
+      document.getElementById('expense-modal-title').textContent = 'Добавить: ' + meta.label;
+      document.getElementById('input-expense-date').value = tsToDateInput(Date.now());
+      document.getElementById('input-expense-amount').value = '';
+      document.getElementById('input-expense-comment').value = '';
+      const quantityField = document.getElementById('expense-quantity-field');
+      if (meta.quantityLabel) {
+        quantityField.hidden = false;
+        document.getElementById('expense-quantity-label').textContent = meta.quantityLabel;
+        document.getElementById('input-expense-quantity').value = '';
+      } else {
+        quantityField.hidden = true;
+      }
+      modalExpense.hidden = false;
+    }
+
+    document.getElementById('btn-add-fuel').addEventListener('click', () => openExpenseModal('fuel'));
+    document.getElementById('btn-add-electricity').addEventListener('click', () => openExpenseModal('electricity'));
+    document.getElementById('btn-add-fine').addEventListener('click', () => openExpenseModal('fine'));
+
+    document.getElementById('btn-cancel-expense').onclick = () => {
+      modalExpense.hidden = true;
+      pendingExpenseType = null;
+    };
+
+    document.getElementById('btn-confirm-expense').onclick = () => {
+      if (!pendingExpenseType) return;
+      const dateStr = document.getElementById('input-expense-date').value;
+      const amount = parseFloat(document.getElementById('input-expense-amount').value);
+      const comment = document.getElementById('input-expense-comment').value.trim();
+      const meta = EXPENSE_TYPES[pendingExpenseType];
+      let quantity = null;
+      if (meta.quantityLabel) {
+        quantity = parseFloat(document.getElementById('input-expense-quantity').value);
+        if (isNaN(quantity) || quantity < 0) return;
+      }
+      if (!dateStr || isNaN(amount) || amount < 0) return;
+
+      AppStorage.addExpense({
+        id: makeId(),
+        type: pendingExpenseType,
+        date: dateInputToTs(dateStr),
+        amount,
+        quantity,
+        comment,
+      });
+
+      modalExpense.hidden = true;
+      pendingExpenseType = null;
+      renderList();
+    };
+
+    document.getElementById('btn-expenses-back').addEventListener('click', () => {
+      if (shift) renderShift();
+      else renderStart();
+    });
+  }
+
+  document.getElementById('btn-expenses').addEventListener('click', () => renderExpenses());
+
+  // ---------- Отчёт по месяцам ----------
+
+  function computeMonthlyReport() {
+    const history = AppStorage.getHistory();
+    const expenses = AppStorage.getExpenses();
+    const commissions = AppStorage.getCommissionSettings();
+    const months = {};
+
+    function getMonth(key) {
+      if (!months[key]) {
+        months[key] = {
+          key,
+          netIncome: 0, grossIncome: 0, distanceKm: 0, ordersCount: 0, shiftsCount: 0,
+          fuelAmount: 0, fuelLiters: 0,
+          electricityAmount: 0, electricityKwh: 0,
+          finesAmount: 0,
+        };
+      }
+      return months[key];
+    }
+
+    history.forEach((s) => {
+      const m = getMonth(monthKey(s.startedAt));
+      m.grossIncome += s.orders.reduce((sum, o) => sum + o.payment, 0);
+      m.netIncome += s.orders.reduce((sum, o) => sum + netAmount(o.payment, commissions, o.mode || s.mode), 0);
+      m.distanceKm += s.distanceKm;
+      m.ordersCount += s.orders.length;
+      m.shiftsCount += 1;
+    });
+
+    expenses.forEach((e) => {
+      const m = getMonth(monthKey(e.date));
+      if (e.type === 'fuel') { m.fuelAmount += e.amount; m.fuelLiters += (e.quantity || 0); }
+      else if (e.type === 'electricity') { m.electricityAmount += e.amount; m.electricityKwh += (e.quantity || 0); }
+      else if (e.type === 'fine') { m.finesAmount += e.amount; }
+    });
+
+    return Object.values(months)
+      .map((m) => {
+        const expensesTotal = m.fuelAmount + m.electricityAmount + m.finesAmount;
+        return { ...m, expensesTotal, profit: m.netIncome - expensesTotal };
+      })
+      .sort((a, b) => b.key.localeCompare(a.key));
+  }
+
+  function renderReport() {
+    stopTicker();
+    viewRoot.innerHTML = '';
+    const tpl = document.getElementById('tpl-report').content.cloneNode(true);
+    viewRoot.appendChild(tpl);
+
+    const months = computeMonthlyReport();
+    const container = document.getElementById('report-months');
+    const emptyHint = document.getElementById('report-empty-hint');
+
+    if (months.length === 0) {
+      emptyHint.hidden = false;
+    } else {
+      emptyHint.hidden = true;
+      container.innerHTML = months.map((m) => `
+        <div class="report-month-card">
+          <h3>${monthLabel(m.key)}</h3>
+          <div class="summary-grid">
+            <div class="summary-card wide highlight">
+              <div class="sc-value">${formatMoney(m.profit)}</div>
+              <div class="sc-label">Прибыль (доход чистыми минус все расходы)</div>
+            </div>
+            <div class="summary-card wide">
+              <div class="sc-value">${formatMoney(m.netIncome)}</div>
+              <div class="sc-label">Доход чистыми · ${m.shiftsCount} смен(ы) · ${m.ordersCount} заказ(ов)</div>
+            </div>
+            <div class="summary-card">
+              <div class="sc-value">${formatMoney(m.fuelAmount)}</div>
+              <div class="sc-label">Бензин (${m.fuelLiters.toFixed(1)} л)</div>
+            </div>
+            <div class="summary-card">
+              <div class="sc-value">${formatMoney(m.electricityAmount)}</div>
+              <div class="sc-label">Электричество (${m.electricityKwh.toFixed(1)} кВт·ч)</div>
+            </div>
+            <div class="summary-card">
+              <div class="sc-value">${formatMoney(m.finesAmount)}</div>
+              <div class="sc-label">Штрафы</div>
+            </div>
+            <div class="summary-card">
+              <div class="sc-value">${formatKm(m.distanceKm)}</div>
+              <div class="sc-label">Пробег за месяц</div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('btn-report-back').addEventListener('click', () => {
+      if (shift) renderShift();
+      else renderStart();
+    });
+  }
+
+  document.getElementById('btn-report').addEventListener('click', () => renderReport());
 
   // ---------- Инициализация ----------
 
