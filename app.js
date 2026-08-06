@@ -6,12 +6,17 @@
   const inputPayment = document.getElementById('input-payment');
   const modalExpense = document.getElementById('modal-expense');
 
-  let shift = AppStorage.getCurrentShift(); // текущая активная смена или null
-  if (shift && !shift.modeStats) {
-    // миграция старого формата смены (без разбивки простоя по режимам)
-    shift.modeStats = { flexible: { idleSeconds: shift.idleSeconds || 0 }, efficient: { idleSeconds: 0 } };
-    delete shift.idleSeconds;
+  function migrateShiftFormat(s) {
+    if (s && !s.modeStats) {
+      // миграция старого формата смены (без разбивки простоя по режимам)
+      s.modeStats = { flexible: { idleSeconds: s.idleSeconds || 0 }, efficient: { idleSeconds: 0 } };
+      delete s.idleSeconds;
+    }
+    return s;
   }
+
+  let shift = migrateShiftFormat(AppStorage.getCurrentShift()); // текущая активная смена или null
+  let currentUser = null; // заполняется, только если доступен сервер и есть вход
   let tickInterval = null;
   let pendingOrderEnd = null; // { durationSec, distanceKm } на время открытой модалки оплаты
   let pendingExpenseType = null; // 'fuel' | 'electricity' | 'fine' на время открытой модалки расхода
@@ -290,6 +295,7 @@
 
   function persist() {
     AppStorage.saveCurrentShift(shift);
+    AppApi.scheduleSync(shift);
   }
 
   // ---------- GPS ----------
@@ -497,6 +503,8 @@
       const finished = shift;
       AppStorage.addToHistory(finished);
       AppStorage.clearCurrentShift();
+      AppApi.cancelScheduledSync();
+      AppApi.pushFinishShift(finished);
       shift = null;
       renderSummary(finished, { backTo: 'start' });
     });
@@ -659,6 +667,7 @@
           const label = s ? formatDateTime(s.startedAt) : '';
           if (!confirm(`Удалить смену от ${label}? Это действие нельзя отменить.`)) return;
           AppStorage.saveHistory(AppStorage.getHistory().filter((h) => h.id !== btn.dataset.id));
+          AppApi.pushDeleteShift(btn.dataset.id);
           renderList();
         });
       });
@@ -676,7 +685,9 @@
     }
 
     document.getElementById('btn-save-sheets-url').addEventListener('click', () => {
-      AppStorage.saveSheetsUrl(sheetsUrlInput.value.trim());
+      const url = sheetsUrlInput.value.trim();
+      AppStorage.saveSheetsUrl(url);
+      AppApi.pushSettings(null, url);
       setExportStatus('Ссылка сохранена', 'ok');
     });
 
@@ -722,6 +733,7 @@
         },
       };
       AppStorage.saveCommissionSettings(newCommissions);
+      AppApi.pushSettings(newCommissions, null);
       status.textContent = 'Сохранено';
       status.className = 'export-status ok';
     });
@@ -794,6 +806,7 @@
         btn.addEventListener('click', () => {
           if (!confirm('Удалить эту запись о расходе?')) return;
           AppStorage.saveExpenses(AppStorage.getExpenses().filter((x) => x.id !== btn.dataset.id));
+          AppApi.pushDeleteExpense(btn.dataset.id);
           renderList();
         });
       });
@@ -841,14 +854,16 @@
       }
       if (!dateStr || isNaN(amount) || amount < 0) return;
 
-      AppStorage.addExpense({
+      const expense = {
         id: makeId(),
         type: pendingExpenseType,
         date: dateInputToTs(dateStr),
         amount,
         quantity,
         comment,
-      });
+      };
+      AppStorage.addExpense(expense);
+      AppApi.pushAddExpense(expense);
 
       modalExpense.hidden = true;
       pendingExpenseType = null;
@@ -963,22 +978,178 @@
 
   document.getElementById('btn-report').addEventListener('click', () => renderReport());
 
-  // ---------- Инициализация ----------
+  // ---------- Вход / регистрация (только когда доступен сервер) ----------
 
-  if (shift) {
-    startGps();
-    renderShift();
-  } else {
-    renderStart();
+  function showAuthedNav(user) {
+    currentUser = user;
+    document.getElementById('btn-logout').hidden = false;
+    document.getElementById('btn-admin-panel').hidden = user.role !== 'admin';
   }
 
-  // ---------- Service worker (офлайн-доступность как PWA) ----------
+  function hideAuthedNav() {
+    currentUser = null;
+    document.getElementById('btn-logout').hidden = true;
+    document.getElementById('btn-admin-panel').hidden = true;
+  }
 
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch((err) => {
-        console.warn('Не удалось зарегистрировать service worker:', err);
-      });
+  function renderAuth(initialMode) {
+    stopTicker();
+    viewRoot.innerHTML = '';
+    const tpl = document.getElementById('tpl-auth').content.cloneNode(true);
+    viewRoot.appendChild(tpl);
+
+    let mode = initialMode || 'login';
+    const title = document.getElementById('auth-title');
+    const nameField = document.getElementById('auth-name-field');
+    const submitBtn = document.getElementById('btn-auth-submit');
+    const toggleBtn = document.getElementById('btn-auth-toggle');
+    const status = document.getElementById('auth-status');
+
+    function applyMode() {
+      if (mode === 'login') {
+        title.textContent = 'Вход';
+        nameField.hidden = true;
+        submitBtn.textContent = 'Войти';
+        toggleBtn.textContent = 'Нет аккаунта? Зарегистрироваться';
+      } else {
+        title.textContent = 'Регистрация';
+        nameField.hidden = false;
+        submitBtn.textContent = 'Зарегистрироваться';
+        toggleBtn.textContent = 'Уже есть аккаунт? Войти';
+      }
+      status.textContent = '';
+      status.className = 'export-status';
+    }
+    applyMode();
+
+    toggleBtn.addEventListener('click', () => {
+      mode = mode === 'login' ? 'register' : 'login';
+      applyMode();
+    });
+
+    submitBtn.addEventListener('click', async () => {
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const name = document.getElementById('auth-name').value.trim();
+
+      status.textContent = 'Подождите...';
+      status.className = 'export-status';
+      submitBtn.disabled = true;
+
+      const result = mode === 'login'
+        ? await AppApi.login(email, password)
+        : await AppApi.register(email, password, name);
+
+      submitBtn.disabled = false;
+
+      if (!result || result.ok !== true) {
+        status.textContent = (result && result.error) || 'Ошибка. Попробуйте ещё раз.';
+        status.className = 'export-status error';
+        return;
+      }
+
+      showAuthedNav(result.user);
+      await AppApi.pullState();
+      shift = migrateShiftFormat(AppStorage.getCurrentShift());
+      if (shift) { startGps(); renderShift(); } else { renderStart(); }
     });
   }
+
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await AppApi.logout();
+    stopGps();
+    stopTicker();
+    AppStorage.clearCurrentShift();
+    AppStorage.saveHistory([]);
+    AppStorage.saveExpenses([]);
+    shift = null;
+    hideAuthedNav();
+    renderAuth('login');
+  });
+
+  // ---------- Рендер: панель администратора ----------
+
+  async function renderAdmin() {
+    stopTicker();
+    viewRoot.innerHTML = '';
+    const tpl = document.getElementById('tpl-admin').content.cloneNode(true);
+    viewRoot.appendChild(tpl);
+
+    const list = document.getElementById('admin-users-list');
+    const emptyHint = document.getElementById('admin-empty-hint');
+    list.innerHTML = '<p class="empty-hint">Загрузка...</p>';
+
+    const data = await AppApi.listUsers();
+
+    if (!data || data.ok !== true) {
+      list.innerHTML = '';
+      emptyHint.hidden = false;
+      emptyHint.textContent = (data && data.error) || 'Не удалось загрузить список пользователей';
+    } else {
+      const users = data.users || [];
+      if (users.length === 0) {
+        list.innerHTML = '';
+        emptyHint.hidden = false;
+        emptyHint.textContent = 'Пока нет других пользователей';
+      } else {
+        emptyHint.hidden = true;
+        list.innerHTML = users.map((u) => `
+          <li class="shift-item">
+            <div class="si-left">
+              <span class="oi-num">${u.name} <span class="expense-type-badge ${u.role === 'admin' ? 'fine' : 'fuel'}">${u.role === 'admin' ? 'Админ' : 'Водитель'}</span></span>
+              <span class="si-meta">${u.email} · ${u.shiftsCount} смен(ы) · ${u.ordersCount} заказ(ов) · ${formatKm(u.distanceKm)}</span>
+              <span class="si-meta">${u.lastShiftStartedAt ? 'Последняя смена: ' + formatDateTime(u.lastShiftStartedAt) : 'Смен ещё не было'}</span>
+            </div>
+            <div class="oi-payment">${formatMoney(u.grossPayment)}</div>
+          </li>
+        `).join('');
+      }
+    }
+
+    document.getElementById('btn-admin-back').addEventListener('click', () => {
+      if (shift) renderShift();
+      else renderStart();
+    });
+  }
+
+  document.getElementById('btn-admin-panel').addEventListener('click', () => renderAdmin());
+
+  // ---------- Инициализация ----------
+
+  async function bootstrap() {
+    const backendAvailable = await AppApi.ping();
+
+    if (backendAvailable) {
+      const user = await AppApi.me();
+      if (!user) {
+        renderAuth('login');
+        registerServiceWorker();
+        return;
+      }
+      showAuthedNav(user);
+      await AppApi.pullState();
+      shift = migrateShiftFormat(AppStorage.getCurrentShift());
+    }
+
+    if (shift) {
+      startGps();
+      renderShift();
+    } else {
+      renderStart();
+    }
+
+    registerServiceWorker();
+  }
+
+  function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch((err) => {
+          console.warn('Не удалось зарегистрировать service worker:', err);
+        });
+      });
+    }
+  }
+
+  bootstrap();
 })();

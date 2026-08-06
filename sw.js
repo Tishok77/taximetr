@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taximetr-v1';
+const CACHE_NAME = 'taximetr-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const APP_SHELL = [
   './app.js',
   './storage.js',
   './geo.js',
+  './sync.js',
   './manifest.json',
   './icons/icon.svg',
 ];

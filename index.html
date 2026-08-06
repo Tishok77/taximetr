@@ -19,10 +19,42 @@
     <button id="btn-report" class="icon-btn" title="Отчёт по месяцам">Отчёт</button>
     <button id="btn-settings" class="icon-btn" title="Настройки комиссий">Комиссии</button>
     <button id="btn-history" class="icon-btn" title="История смен">История</button>
+    <button id="btn-admin-panel" class="icon-btn" title="Панель администратора" hidden>Админ</button>
+    <button id="btn-logout" class="icon-btn" title="Выйти" hidden>Выйти</button>
   </div>
 </header>
 
 <main id="view-root"></main>
+
+<!-- Экран: вход / регистрация (только когда доступен сервер) -->
+<template id="tpl-auth">
+  <section class="screen">
+    <h2 id="auth-title">Вход</h2>
+    <div class="export-box">
+      <div id="auth-name-field">
+        <label class="field-label" for="auth-name">Имя</label>
+        <input type="text" id="auth-name" placeholder="Как вас зовут">
+      </div>
+      <label class="field-label" for="auth-email">Email</label>
+      <input type="email" id="auth-email" placeholder="you@example.com">
+      <label class="field-label" for="auth-password">Пароль</label>
+      <input type="password" id="auth-password" placeholder="Не короче 6 символов">
+    </div>
+    <p class="export-status" id="auth-status"></p>
+    <button id="btn-auth-submit" class="btn btn-primary btn-lg">Войти</button>
+    <button id="btn-auth-toggle" class="btn btn-secondary btn-lg">Нет аккаунта? Зарегистрироваться</button>
+  </section>
+</template>
+
+<!-- Экран: панель администратора -->
+<template id="tpl-admin">
+  <section class="screen">
+    <h2>Пользователи</h2>
+    <ul class="shift-history-list" id="admin-users-list"></ul>
+    <p class="empty-hint" id="admin-empty-hint" hidden>Пока нет других пользователей</p>
+    <button id="btn-admin-back" class="btn btn-secondary btn-lg">На главный экран</button>
+  </section>
+</template>
 
 <!-- Экран: нет активной смены -->
 <template id="tpl-start">
@@ -217,6 +249,7 @@
 
 <script src="storage.js"></script>
 <script src="geo.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
