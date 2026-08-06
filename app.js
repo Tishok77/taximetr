@@ -1056,6 +1056,7 @@
   }
 
   document.getElementById('btn-logout').addEventListener('click', async () => {
+    if (!confirm('Выйти из аккаунта?')) return;
     await AppApi.logout();
     stopGps();
     stopTicker();
